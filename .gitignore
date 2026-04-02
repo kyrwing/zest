@@ -7,5 +7,12 @@ dist/
 *.log
 .DS_Store
 Thumbs.db
+# Сгенерированные тестовые файлы (результат работы CLI)
+output*.test.ts
+generated*.test.ts
+*.gen.ts
+
+# Локальные артефакты
+evidence/
 docs/O1A-EVIDENCE.md
 .npmrc
