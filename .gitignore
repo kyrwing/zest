@@ -1,0 +1,10 @@
+# Зависимости
+node_modules/
+# Сгенерированные/сборочные файлы
+output.test.ts
+dist/
+# Логи и ОС
+*.log
+.DS_Store
+Thumbs.db
+docs/O1A-EVIDENCE.md
