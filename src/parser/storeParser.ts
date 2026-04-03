@@ -41,41 +41,55 @@ export function parseStore(filePath: string): StoreProperty[] {
       let typeString = 'unknown';
       let mockValue = 'null';
 
-      if (init) {
-        const initText = init.getText().trim();
-        
-        // Прямой маппинг литералов из исходного кода
-        if (initText === 'true' || initText === 'false') {
-          mockValue = initText;
-          typeString = 'boolean';
-        }
-        else if (/^["'].*["']$/.test(initText)) {
-          mockValue = initText;
-          typeString = 'string';
-        }
-        else if (/^-?\d+(\.\d+)?$/.test(initText)) {
-          mockValue = initText;
-          typeString = 'number';
-        }
-        else if (initText === '[]') {
-          mockValue = '[]';
-          typeString = 'array';
-        }
-        else if (initText === '{}') {
+       if (init) {
+        // 🔍 ПРИОРИТЕТ 1: Проверяем тип узла (самый надёжный способ)
+        if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
           mockValue = '{}';
           typeString = 'object';
         }
+        else if (init.isKind(SyntaxKind.ArrayLiteralExpression)) {
+          mockValue = '[]';
+          typeString = 'array';
+        }
+        else if (init.isKind(SyntaxKind.NullKeyword)) {
+          mockValue = 'null';
+          typeString = 'null';
+        }
+        else if (init.isKind(SyntaxKind.TrueKeyword)) {
+          mockValue = 'true';
+          typeString = 'boolean';
+        }
+        else if (init.isKind(SyntaxKind.FalseKeyword)) {
+          mockValue = 'false';
+          typeString = 'boolean';
+        }
+        // 🔍 ПРИОРИТЕТ 2: Только если не объект/массив — читаем текст для литералов
         else {
-          // Fallback: используем type inference для сложных случаев
-          const type = init.getType();
-          typeString = type.getText();
+          const initText = init.getText().trim();
           
-          if (typeString.includes('string')) mockValue = `"test_${key}"`;
-          else if (typeString.includes('number')) mockValue = `0`;
-          else if (typeString.includes('boolean')) mockValue = `true`;
-          else if (typeString.startsWith('[')) mockValue = `[]`;
-          else if (typeString.startsWith('{') || type.isObject()) mockValue = `{}`;
-          else mockValue = `null`;
+          if (initText === 'true' || initText === 'false') {
+            mockValue = initText;
+            typeString = 'boolean';
+          }
+          else if (/^["'].*["']$/.test(initText)) {
+            mockValue = initText;
+            typeString = 'string';
+          }
+          else if (/^-?\d+(\.\d+)?$/.test(initText)) {
+            mockValue = initText;
+            typeString = 'number';
+          }
+          else {
+            // Fallback на type inference для сложных случаев
+            const type = init.getType();
+            typeString = type.getText();
+            if (typeString.includes('string')) mockValue = `"test_${key}"`;
+            else if (typeString.includes('number')) mockValue = `0`;
+            else if (typeString.includes('boolean')) mockValue = `true`;
+            else if (typeString.startsWith('[')) mockValue = `[]`;
+            else if (typeString.startsWith('{') || type.isObject()) mockValue = `{}`;
+            else mockValue = `null`;
+          }
         }
       }
 

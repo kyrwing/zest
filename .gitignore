@@ -1,16 +1,26 @@
 # Зависимости
 node_modules/
+
 # Сгенерированные/сборочные файлы
-output.test.ts
 dist/
+
 # Логи и ОС
 *.log
 .DS_Store
 Thumbs.db
+
 # Сгенерированные тестовые файлы (результат работы CLI)
+# Игнорируем все *.test.ts в корне и example/
+*.test.ts
+example/*.test.ts
+
+# НО разрешаем настоящие тесты инструмента в папке tests/
+!tests/**/*.test.ts
+
+# Артефакты генерации
+*.gen.ts
 output*.test.ts
 generated*.test.ts
-*.gen.ts
 
 # Локальные артефакты
 evidence/
