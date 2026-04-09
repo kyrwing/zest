@@ -1,28 +1,31 @@
 # Зависимости
 node_modules/
 
-# Сгенерированные/сборочные файлы
+# Сборка и кэш
 dist/
+*.tsbuildinfo
+coverage/
 
 # Логи и ОС
 *.log
 .DS_Store
 Thumbs.db
 
-# Сгенерированные тестовые файлы (результат работы CLI)
-# Игнорируем все *.test.ts в корне и example/
-*.test.ts
+# Артефакты генерации CLI
+generated.test.ts
+*.gen.test.ts
+__tests__/*.test.ts
 example/*.test.ts
 
-# НО разрешаем настоящие тесты инструмента в папке tests/
+# Настоящие тесты инструмента (разрешаем)
 !tests/**/*.test.ts
 
-# Артефакты генерации
-*.gen.ts
-output*.test.ts
-generated*.test.ts
+# Секреты и локальные конфиги
+.npmrc
+.zestrc.js
+.zestrc.local.js
 
-# Локальные артефакты
+# Приватные файлы
 evidence/
 docs/O1A-EVIDENCE.md
-.npmrc
+ROADMAP.md
