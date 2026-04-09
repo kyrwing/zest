@@ -1,4 +1,4 @@
-import { Project, SyntaxKind, ScriptTarget, ModuleResolutionKind } from 'ts-morph';
+import { Project, SyntaxKind, ScriptTarget, ModuleResolutionKind, Node, ObjectLiteralExpression } from 'ts-morph';
 import { resolve } from 'path';
 
 export interface StoreProperty {
@@ -6,6 +6,23 @@ export interface StoreProperty {
   isAction: boolean;
   typeString: string;
   mockValue: string;
+}
+
+// 🔍 Рекурсивный поиск объекта стора внутри обёрток (persist, devtools, etc.)
+function findStoreObject(node: Node): ObjectLiteralExpression | undefined {
+  if (node.isKind(SyntaxKind.ObjectLiteralExpression)) {
+    const obj = node.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
+    const props = obj.getProperties();
+    if (props.length > 0 && props.some(p => p.isKind(SyntaxKind.PropertyAssignment))) {
+      return obj;
+    }
+  }
+  // Иначе ищем в детях (рекурсия)
+  for (const child of node.getChildren()) {
+    const result = findStoreObject(child);
+    if (result) return result;
+  }
+  return undefined;
 }
 
 export function parseStore(filePath: string): StoreProperty[] {
@@ -26,10 +43,16 @@ export function parseStore(filePath: string): StoreProperty[] {
   const properties: StoreProperty[] = [];
   
   const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
-  const zustandCall = calls.find(c => c.getExpression().getText().includes('create'));
+  
+  const zustandCall = calls.find(c => {
+    const expr = c.getExpression();
+    const text = expr.getText();
+    return text.includes('create') && !text.includes('createContext');
+  });
+  
   if (!zustandCall) throw new Error('Zustand create() not found');
 
-  const obj = zustandCall.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)[0];
+  const obj = findStoreObject(zustandCall);
   if (!obj) throw new Error('Store object not found');
 
   obj.getProperties().forEach(prop => {
@@ -41,8 +64,7 @@ export function parseStore(filePath: string): StoreProperty[] {
       let typeString = 'unknown';
       let mockValue = 'null';
 
-       if (init) {
-        // 🔍 ПРИОРИТЕТ 1: Проверяем тип узла (самый надёжный способ)
+      if (init) {
         if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
           mockValue = '{}';
           typeString = 'object';
@@ -63,7 +85,7 @@ export function parseStore(filePath: string): StoreProperty[] {
           mockValue = 'false';
           typeString = 'boolean';
         }
-        // 🔍 ПРИОРИТЕТ 2: Только если не объект/массив — читаем текст для литералов
+        // 🔍 ПРИОРИТЕТ 2: Читаем текст для литералов
         else {
           const initText = init.getText().trim();
           
@@ -80,7 +102,7 @@ export function parseStore(filePath: string): StoreProperty[] {
             typeString = 'number';
           }
           else {
-            // Fallback на type inference для сложных случаев
+            // Fallback на type inference
             const type = init.getType();
             typeString = type.getText();
             if (typeString.includes('string')) mockValue = `"test_${key}"`;
