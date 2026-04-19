@@ -1,4 +1,4 @@
-import { Project, SyntaxKind, ScriptTarget, ModuleResolutionKind, Node, ObjectLiteralExpression } from 'ts-morph';
+import { Project, SyntaxKind, ScriptTarget, ModuleResolutionKind, Node, ObjectLiteralExpression, Type } from 'ts-morph';
 import { resolve } from 'path';
 
 export interface StoreProperty {
@@ -17,12 +17,64 @@ function findStoreObject(node: Node): ObjectLiteralExpression | undefined {
       return obj;
     }
   }
-  // Иначе ищем в детях (рекурсия)
   for (const child of node.getChildren()) {
     const result = findStoreObject(child);
     if (result) return result;
   }
   return undefined;
+}
+
+function resolveMockFromType(type: Type, initText: string): string {
+  try {
+    const text = type.getText();
+
+    // 🔍 Примитивы-литералы (используем getLiteralValue())
+    if (type.isStringLiteral()) return `"${type.getLiteralValue()}"`;
+    if (type.isNumberLiteral()) return `${type.getLiteralValue()}`;
+    if (type.isBooleanLiteral()) return `${type.getLiteralValue()}`;
+
+    // 🔍 Базовые типы
+    if (type.isString()) return `""`;
+    if (type.isNumber()) return `0`;
+    if (type.isBoolean()) return `false`;
+    if (type.isNull() || type.isUndefined()) return `null`;
+
+    // 🔍 Массивы (используем isArray())
+    if (type.isArray() || text.startsWith('[') || text.includes('[]')) return `[]`;
+
+    // 🔍 Объекты / Record / интерфейсы
+    if (type.isObject()) {
+      if (text.startsWith('Record<')) return `{}`;
+      return `{}`;
+    }
+
+    // 🔍 Union-типы (берём первый безопасный литерал)
+    if (type.isUnion()) {
+      // Приоритет: если разработчик явно написал null/undefined в коде, отдаём его
+      if (initText === 'null') return 'null';
+      if (initText === 'undefined') return 'undefined';
+
+      const unionTypes = type.getUnionTypes();
+      // Ищем первый конкретный тип среди вариантов юниона
+      for (const t of unionTypes) {
+        if (t.isStringLiteral()) return `"${t.getLiteralValue()}"`;
+        if (t.isNumberLiteral()) return `${t.getLiteralValue()}`;
+        if (t.isBooleanLiteral()) return `${t.getLiteralValue()}`;
+        if (t.isObject() || t.isClass()) return '{}';
+        if (t.isNull()) return 'null';
+        if (t.isUndefined()) return 'undefined';
+      }
+      // Fallback: берём первый тип из строки
+      return `"${text.split('|')[0].trim()}"`;
+    }
+
+    // 🔍 Fallback
+    return initText || '{}';
+  } catch (e) {
+    // Если type inference упал → откат к старому поведению
+    console.warn(`⚠️ Type inference fallback for "${initText}":`, e instanceof Error ? e.message : e);
+    return initText || '{}';
+  }
 }
 
 export function parseStore(filePath: string): StoreProperty[] {
@@ -31,7 +83,7 @@ export function parseStore(filePath: string): StoreProperty[] {
     compilerOptions: {
       target: ScriptTarget.ES2020,
       moduleResolution: ModuleResolutionKind.NodeJs,
-      skipLibCheck: false,
+      skipLibCheck: true, // ✅ Включаем для ускорения и избежания ошибок в node_modules
       strict: true,
       esModuleInterop: true,
     },
@@ -39,17 +91,16 @@ export function parseStore(filePath: string): StoreProperty[] {
 
   const sourceFile = project.addSourceFileAtPath(resolve(filePath));
   project.resolveSourceFileDependencies();
-  
+
   const properties: StoreProperty[] = [];
-  
   const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
-  
+
   const zustandCall = calls.find(c => {
     const expr = c.getExpression();
     const text = expr.getText();
     return text.includes('create') && !text.includes('createContext');
   });
-  
+
   if (!zustandCall) throw new Error('Zustand create() not found');
 
   const obj = findStoreObject(zustandCall);
@@ -60,11 +111,14 @@ export function parseStore(filePath: string): StoreProperty[] {
       const key = prop.getName();
       const init = prop.getInitializer();
       const isFunction = !!init && (init.isKind(SyntaxKind.ArrowFunction) || init.isKind(SyntaxKind.FunctionExpression));
-      
+
       let typeString = 'unknown';
       let mockValue = 'null';
 
       if (init) {
+        const initText = init.getText().trim();
+
+        // 🔍 ПРИОРИТЕТ 1: Читаем явные литералы (быстро и точно)
         if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
           mockValue = '{}';
           typeString = 'object';
@@ -85,33 +139,23 @@ export function parseStore(filePath: string): StoreProperty[] {
           mockValue = 'false';
           typeString = 'boolean';
         }
-        // 🔍 ПРИОРИТЕТ 2: Читаем текст для литералов
+        else if (initText === 'true' || initText === 'false') {
+          mockValue = initText;
+          typeString = 'boolean';
+        }
+        else if (/^["'].*["']$/.test(initText)) {
+          mockValue = initText;
+          typeString = 'string';
+        }
+        else if (/^-?\d+(\.\d+)?$/.test(initText)) {
+          mockValue = initText;
+          typeString = 'number';
+        }
+        // 🔍 ПРИОРИТЕТ 2: Type Inference 2.0 для сложных случаев
         else {
-          const initText = init.getText().trim();
-          
-          if (initText === 'true' || initText === 'false') {
-            mockValue = initText;
-            typeString = 'boolean';
-          }
-          else if (/^["'].*["']$/.test(initText)) {
-            mockValue = initText;
-            typeString = 'string';
-          }
-          else if (/^-?\d+(\.\d+)?$/.test(initText)) {
-            mockValue = initText;
-            typeString = 'number';
-          }
-          else {
-            // Fallback на type inference
-            const type = init.getType();
-            typeString = type.getText();
-            if (typeString.includes('string')) mockValue = `"test_${key}"`;
-            else if (typeString.includes('number')) mockValue = `0`;
-            else if (typeString.includes('boolean')) mockValue = `true`;
-            else if (typeString.startsWith('[')) mockValue = `[]`;
-            else if (typeString.startsWith('{') || type.isObject()) mockValue = `{}`;
-            else mockValue = `null`;
-          }
+          const type = init.getType();
+          typeString = type.getText();
+          mockValue = resolveMockFromType(type, initText);
         }
       }
 
