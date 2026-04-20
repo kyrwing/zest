@@ -1,11 +1,18 @@
 import { Project, SyntaxKind, ScriptTarget, ModuleResolutionKind, Node, ObjectLiteralExpression, Type } from 'ts-morph';
 import { resolve } from 'path';
 
+export interface ActionParam {
+  name: string;
+  typeString: string;
+  mockValue: string;
+}
+
 export interface StoreProperty {
   key: string;
   isAction: boolean;
   typeString: string;
   mockValue: string;
+  actionParams?: ActionParam[];
 }
 
 export interface ParseResult {
@@ -126,48 +133,54 @@ export function parseStore(filePath: string): ParseResult {
 
       let typeString = 'unknown';
       let mockValue = 'null';
+      let actionParams: ActionParam[] | undefined;
 
       if (init) {
-        const initText = init.getText().trim();
+        if (isFunction) {
+          const params = init.getParameters();
 
-        // 🔍 ПРИОРИТЕТ 1: Читаем явные литералы (быстро и точно)
-        if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
-          mockValue = '{}';
-          typeString = 'object';
+          if (params.length > 0) {
+            actionParams = params.map(p => {
+              const pType = p.getType();
+              // Генерируем мок для параметра через ту же логику
+              const pMock = resolveMockFromType(pType, p.getText());
+              return { name: p.getName(), typeString: pType.getText(), mockValue: pMock };
+            });
+          }
+          mockValue = 'jest.fn()';
+          typeString = 'function';
         }
-        else if (init.isKind(SyntaxKind.ArrayLiteralExpression)) {
-          mockValue = '[]';
-          typeString = 'array';
-        }
-        else if (init.isKind(SyntaxKind.NullKeyword)) {
-          mockValue = 'null';
-          typeString = 'null';
-        }
-        else if (init.isKind(SyntaxKind.TrueKeyword)) {
-          mockValue = 'true';
-          typeString = 'boolean';
-        }
-        else if (init.isKind(SyntaxKind.FalseKeyword)) {
-          mockValue = 'false';
-          typeString = 'boolean';
-        }
-        else if (initText === 'true' || initText === 'false') {
-          mockValue = initText;
-          typeString = 'boolean';
-        }
-        else if (/^["'].*["']$/.test(initText)) {
-          mockValue = initText;
-          typeString = 'string';
-        }
-        else if (/^-?\d+(\.\d+)?$/.test(initText)) {
-          mockValue = initText;
-          typeString = 'number';
-        }
-        // 🔍 ПРИОРИТЕТ 2: Type Inference 2.0 для сложных случаев
         else {
-          const type = init.getType();
-          typeString = type.getText();
-          mockValue = resolveMockFromType(type, initText);
+          const initText = init.getText().trim();
+          if (init.isKind(SyntaxKind.ObjectLiteralExpression)) {
+            mockValue = '{}'; typeString = 'object';
+          }
+          else if (init.isKind(SyntaxKind.ArrayLiteralExpression)) {
+            mockValue = '[]'; typeString = 'array';
+          }
+          else if (init.isKind(SyntaxKind.NullKeyword)) {
+            mockValue = 'null'; typeString = 'null';
+          }
+          else if (init.isKind(SyntaxKind.TrueKeyword)) {
+            mockValue = 'true'; typeString = 'boolean';
+          }
+          else if (init.isKind(SyntaxKind.FalseKeyword)) {
+            mockValue = 'false'; typeString = 'boolean';
+          }
+          else if (initText === 'true' || initText === 'false') {
+            mockValue = initText; typeString = 'boolean';
+          }
+          else if (/^["'].*["']$/.test(initText)) {
+            mockValue = initText; typeString = 'string';
+          }
+          else if (/^-?\d+(\.\d+)?$/.test(initText)) {
+            mockValue = initText; typeString = 'number';
+          }
+          else {
+            const type = init.getType();
+            typeString = type.getText();
+            mockValue = resolveMockFromType(type, initText);
+          }
         }
       }
 
@@ -175,7 +188,8 @@ export function parseStore(filePath: string): ParseResult {
         key,
         isAction: isFunction,
         typeString,
-        mockValue: isFunction ? `jest.fn()` : mockValue
+        mockValue: isFunction ? mockValue : mockValue,
+        actionParams
       });
     }
   });

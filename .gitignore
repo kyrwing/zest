@@ -26,6 +26,7 @@ example/*.test.ts
 .zestrc.local.js
 
 # Приватные файлы
+test-stores/
 evidence/
 docs/O1A-EVIDENCE.md
 ROADMAP.md
