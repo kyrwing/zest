@@ -8,7 +8,7 @@ import { loadConfig } from '../config/loadConfig';
 import { checkDependencies } from '../utils/dependencyCheck';
 
 const program = new Command();
-program.name('zest').description('Type-aware test generator for Zustand stores').version('0.4.0');
+program.name('zest').description('Type-aware test generator for Zustand stores').version('0.5.1');
 
 program
   .argument('<store-path>', 'Path to Zustand store file')
@@ -28,9 +28,9 @@ program
       const config = loadConfig(cwd);
       const frameworkFlag = opts.framework || config.framework || 'auto';
       const assertFlag = !!opts.assert || !!config.assert;
-      const outputFlag = opts.output || config.output || 'generated.test.ts';
+      let outPath: string;
+      const outputFlag = opts.output || config.output;
 
-      // Dependency check
       const { missing, hasTestingLib } = checkDependencies(cwd);
       if (missing.length > 0) {
         logWarn(`Missing dependencies: ${missing.join(', ')}`);
@@ -41,10 +41,9 @@ program
       }
 
       logInfo(`Parsing: ${storePath}`);
-      const props = parseStore(absStorePath);
-      logInfo(`Found: ${props.filter(p => !p.isAction).length} state fields, ${props.filter(p => p.isAction).length} actions`);
+      const { storeName, properties } = parseStore(absStorePath);
+      logInfo(`Found: ${properties.filter(p => !p.isAction).length} state fields, ${properties.filter(p => p.isAction).length} actions`);
 
-      // Auto-detect framework
       let detectedFramework: 'jest' | 'vitest' = 'jest';
       if (frameworkFlag === 'auto') {
         const pkgPath = resolve(cwd, 'package.json');
@@ -58,14 +57,20 @@ program
         detectedFramework = frameworkFlag as 'jest' | 'vitest';
       }
 
-      const genOpts: GeneratorOptions = { framework: detectedFramework, assert: assertFlag };
-      const testCode = generateTestFile(props, genOpts);
+      const genOpts: GeneratorOptions = { framework: detectedFramework, assert: assertFlag, storeName };
+      const testCode = generateTestFile(properties, genOpts);
 
-      // 🔧 Формируем путь и создаём папку, если её нет
-      const { name } = parse(absStorePath);
-      const outPath = resolve(cwd, outputFlag.replace('[name]', name));
+      if (outputFlag) {
+        const { name } = parse(absStorePath);
+        outPath = resolve(cwd, outputFlag.replace('[name]', name));
+      } else {
+        // АВТО: если флаг и конфиг не указаны, кладем тест РЯДОМ с исходником
+        const { dir, name } = parse(absStorePath);
+        outPath = resolve(dir, `${name}.test.ts`);
+      }
+
       const outDir = dirname(outPath);
-      
+
       if (!existsSync(outDir)) {
         mkdirSync(outDir, { recursive: true });
       }

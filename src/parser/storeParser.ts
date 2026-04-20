@@ -8,6 +8,10 @@ export interface StoreProperty {
   mockValue: string;
 }
 
+export interface ParseResult {
+  storeName: string;
+  properties: StoreProperty[];
+}
 // 🔍 Рекурсивный поиск объекта стора внутри обёрток (persist, devtools, etc.)
 function findStoreObject(node: Node): ObjectLiteralExpression | undefined {
   if (node.isKind(SyntaxKind.ObjectLiteralExpression)) {
@@ -28,7 +32,6 @@ function resolveMockFromType(type: Type, initText: string): string {
   try {
     const text = type.getText();
 
-    // 🔍 Примитивы-литералы (используем getLiteralValue())
     if (type.isStringLiteral()) return `"${type.getLiteralValue()}"`;
     if (type.isNumberLiteral()) return `${type.getLiteralValue()}`;
     if (type.isBooleanLiteral()) return `${type.getLiteralValue()}`;
@@ -77,7 +80,7 @@ function resolveMockFromType(type: Type, initText: string): string {
   }
 }
 
-export function parseStore(filePath: string): StoreProperty[] {
+export function parseStore(filePath: string): ParseResult {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     compilerOptions: {
@@ -102,6 +105,15 @@ export function parseStore(filePath: string): StoreProperty[] {
   });
 
   if (!zustandCall) throw new Error('Zustand create() not found');
+
+  let storeName = 'useTestStore';
+  const varDecl = zustandCall.getFirstAncestorByKind(SyntaxKind.VariableDeclaration);
+  if (varDecl) {
+    const nameNode = varDecl.getNameNode();
+    if (nameNode?.isKind(SyntaxKind.Identifier)) {
+      storeName = nameNode.getText();
+    }
+  }
 
   const obj = findStoreObject(zustandCall);
   if (!obj) throw new Error('Store object not found');
@@ -168,5 +180,5 @@ export function parseStore(filePath: string): StoreProperty[] {
     }
   });
 
-  return properties;
+  return { storeName, properties };
 }
