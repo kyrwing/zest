@@ -8,7 +8,7 @@ import { loadConfig } from '../config/loadConfig';
 import { checkDependencies } from '../utils/dependencyCheck';
 
 const program = new Command();
-program.name('zest').description('Type-aware test generator for Zustand stores').version('0.5.1');
+program.name('zest').description('Type-aware test generator for Zustand stores').version('0.6.1');
 
 program
   .argument('<store-path>', 'Path to Zustand store file')
