@@ -41,7 +41,7 @@ program
       }
 
       logInfo(`Parsing: ${storePath}`);
-      const { storeName, properties } = parseStore(absStorePath);
+      const { storeName, properties } = parseStore(absStorePath, config.ignoreMiddleware || []);
       logInfo(`Found: ${properties.filter(p => !p.isAction).length} state fields, ${properties.filter(p => p.isAction).length} actions`);
 
       let detectedFramework: 'jest' | 'vitest' = 'jest';

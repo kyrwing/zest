@@ -21,7 +21,6 @@ export function generateTestFile(props: StoreProperty[], opts: GeneratorOptions)
 
   let assertions = '';
   if (assert) {
-    // 1. Ассерты инициализации (оставляем как было)
     const initAssertions = props
       .filter(p => !p.isAction)
       .map(p => {
@@ -34,7 +33,6 @@ export function generateTestFile(props: StoreProperty[], opts: GeneratorOptions)
       .map(p => `    expect(typeof result.current.${p.key}).toBe('function');`)
       .join('\n');
 
-    // 2. Вызовы экшенов с моками и ассерты (НОВОЕ)
     const actionCalls = props
       .filter(p => p.isAction && p.actionParams && p.actionParams.length > 0)
       .map(p => {

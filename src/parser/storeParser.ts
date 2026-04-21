@@ -19,8 +19,8 @@ export interface ParseResult {
   storeName: string;
   properties: StoreProperty[];
 }
-// 🔍 Рекурсивный поиск объекта стора внутри обёрток (persist, devtools, etc.)
-function findStoreObject(node: Node): ObjectLiteralExpression | undefined {
+
+function findStoreObject(node: Node, ignoredWrappers: string[] = []): ObjectLiteralExpression | undefined {
   if (node.isKind(SyntaxKind.ObjectLiteralExpression)) {
     const obj = node.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
     const props = obj.getProperties();
@@ -28,8 +28,16 @@ function findStoreObject(node: Node): ObjectLiteralExpression | undefined {
       return obj;
     }
   }
+  if (node.isKind(SyntaxKind.CallExpression)) {
+    const expr = node.getExpression();
+    const callName = expr.getText();
+    if (ignoredWrappers.some(w => callName.includes(w))) {
+      return node.getArguments().find(arg => arg.isKind(SyntaxKind.ObjectLiteralExpression))
+        ?.asKind(SyntaxKind.ObjectLiteralExpression);
+    }
+  }
   for (const child of node.getChildren()) {
-    const result = findStoreObject(child);
+    const result = findStoreObject(child, ignoredWrappers);
     if (result) return result;
   }
   return undefined;
@@ -43,29 +51,23 @@ function resolveMockFromType(type: Type, initText: string): string {
     if (type.isNumberLiteral()) return `${type.getLiteralValue()}`;
     if (type.isBooleanLiteral()) return `${type.getLiteralValue()}`;
 
-    // 🔍 Базовые типы
     if (type.isString()) return `""`;
     if (type.isNumber()) return `0`;
     if (type.isBoolean()) return `false`;
     if (type.isNull() || type.isUndefined()) return `null`;
 
-    // 🔍 Массивы (используем isArray())
     if (type.isArray() || text.startsWith('[') || text.includes('[]')) return `[]`;
 
-    // 🔍 Объекты / Record / интерфейсы
     if (type.isObject()) {
       if (text.startsWith('Record<')) return `{}`;
       return `{}`;
     }
 
-    // 🔍 Union-типы (берём первый безопасный литерал)
     if (type.isUnion()) {
-      // Приоритет: если разработчик явно написал null/undefined в коде, отдаём его
       if (initText === 'null') return 'null';
       if (initText === 'undefined') return 'undefined';
 
       const unionTypes = type.getUnionTypes();
-      // Ищем первый конкретный тип среди вариантов юниона
       for (const t of unionTypes) {
         if (t.isStringLiteral()) return `"${t.getLiteralValue()}"`;
         if (t.isNumberLiteral()) return `${t.getLiteralValue()}`;
@@ -74,26 +76,23 @@ function resolveMockFromType(type: Type, initText: string): string {
         if (t.isNull()) return 'null';
         if (t.isUndefined()) return 'undefined';
       }
-      // Fallback: берём первый тип из строки
       return `"${text.split('|')[0].trim()}"`;
     }
 
-    // 🔍 Fallback
     return initText || '{}';
   } catch (e) {
-    // Если type inference упал → откат к старому поведению
     console.warn(`⚠️ Type inference fallback for "${initText}":`, e instanceof Error ? e.message : e);
     return initText || '{}';
   }
 }
 
-export function parseStore(filePath: string): ParseResult {
+export function parseStore(filePath: string, ignoredWrappers: string[] = []): ParseResult {
   const project = new Project({
     skipAddingFilesFromTsConfig: true,
     compilerOptions: {
       target: ScriptTarget.ES2020,
       moduleResolution: ModuleResolutionKind.NodeJs,
-      skipLibCheck: true, // ✅ Включаем для ускорения и избежания ошибок в node_modules
+      skipLibCheck: true,
       strict: true,
       esModuleInterop: true,
     },
@@ -122,7 +121,7 @@ export function parseStore(filePath: string): ParseResult {
     }
   }
 
-  const obj = findStoreObject(zustandCall);
+  const obj = findStoreObject(zustandCall, ignoredWrappers);
   if (!obj) throw new Error('Store object not found');
 
   obj.getProperties().forEach(prop => {
@@ -142,8 +141,7 @@ export function parseStore(filePath: string): ParseResult {
           if (params.length > 0) {
             actionParams = params.map(p => {
               const pType = p.getType();
-              // Генерируем мок для параметра через ту же логику
-              const pMock = resolveMockFromType(pType, p.getText());
+              const pMock = resolveMockFromType(pType, '');
               return { name: p.getName(), typeString: pType.getText(), mockValue: pMock };
             });
           }
