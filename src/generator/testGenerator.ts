@@ -33,10 +33,16 @@ export function generateTestFile(props: StoreProperty[], opts: GeneratorOptions)
       .map(p => `    expect(typeof result.current.${p.key}).toBe('function');`)
       .join('\n');
 
+    const sanitizeParam = (val: string) => {
+      let clean = val.replace(/:\s*[A-Z]\w+(?:<[^>]+>)?/g, '').trim();
+      if (/^[a-zA-Z_$][a-zA-Z0-9_$]*$/.test(clean)) return '{}';
+      return clean;
+    };
+
     const actionCalls = props
-      .filter(p => p.isAction && p.actionParams && p.actionParams.length > 0)
+      .filter(p => p.isAction && p.actionParams?.length)
       .map(p => {
-        const args = p.actionParams!.map(ap => ap.mockValue).join(', ');
+        const args = p.actionParams!.map(ap => sanitizeParam(ap.mockValue)).join(', ');
         return `    act(() => result.current.${p.key}(${args}));
     expect(result.current.${p.key}).toHaveBeenCalledWith(${args});`;
       }).join('\n');
